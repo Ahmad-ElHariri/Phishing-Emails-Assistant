@@ -1,0 +1,129 @@
+.analysisCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2rem;
+  font-family: 'Monaco', 'Courier New', monospace;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+  gap: 1rem;
+}
+
+.label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 0 0 0.5rem 0;
+  font-weight: 700;
+}
+
+.sender {
+  font-size: 1rem;
+  color: var(--text-primary);
+  margin: 0;
+  word-break: break-all;
+}
+
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 1rem 0;
+}
+
+.subject {
+  margin-bottom: 1rem;
+}
+
+.subjectText {
+  font-size: 1rem;
+  color: var(--text-primary);
+  margin: 0;
+  font-weight: 600;
+}
+
+.body {
+  margin-bottom: 1rem;
+}
+
+.preview {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.analysis {
+  margin-bottom: 1rem;
+}
+
+.elements {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.elements li {
+  display: flex;
+  gap: 0.75rem;
+  margin: 0.5rem 0;
+  padding: 0.5rem;
+  background: rgba(239, 68, 68, 0.05);
+  border-left: 2px solid var(--danger);
+  border-radius: 4px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+.indicator {
+  flex-shrink: 0;
+}
+
+.safe {
+  color: var(--safe);
+  font-weight: 600;
+  margin: 0;
+}
+
+.analyzeButton {
+  width: 100%;
+  padding: 0.75rem;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-light) 100%);
+  color: var(--primary-dark);
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 0.95rem;
+}
+
+.analyzeButton:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+@media (max-width: 768px) {
+  .analysisCard {
+    padding: 1.5rem;
+    font-size: 0.9rem;
+  }
+
+  .sender {
+    font-size: 0.9rem;
+  }
+
+  .elements li {
+    font-size: 0.8rem;
+  }
+}
