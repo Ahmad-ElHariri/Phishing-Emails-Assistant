@@ -1,3 +1,6 @@
+const BACKEND_URL = "http://127.0.0.1:5000";
+const REQUEST_TIMEOUT_MS = 10000;
+
 const extractBtn = document.getElementById("extractBtn");
 const statusDiv = document.getElementById("status");
 const outputPre = document.getElementById("output");
@@ -9,70 +12,36 @@ function escapeHtml(text) {
     .replace(/>/g, "&gt;");
 }
 
-function runMockAnalysis(emailData) {
-  const reasons = [];
-  let score = 0;
+function getBadgeColor(label) {
+  if (label === "Phishing") return "#d93025";
+  if (label === "Suspicious") return "#f9ab00";
+  return "#188038";
+}
 
-  const suspiciousWords = [
-    "urgent",
-    "verify",
-    "password",
-    "bank",
-    "click here",
-    "immediately",
-    "account suspended",
-    "confirm",
-    "payment",
-    "invoice"
-  ];
+async function analyzeWithBackend(emailData) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  const subject = (emailData.subject_text || "").toLowerCase();
-  const body = (emailData.body_visible_text || "").toLowerCase();
-  const senderDomain = (emailData.from_domain || "").toLowerCase();
+  try {
+    const response = await fetch(`${BACKEND_URL}/predict`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ emailData }),
+      signal: controller.signal
+    });
 
-  suspiciousWords.forEach((word) => {
-    if (subject.includes(word) || body.includes(word)) {
-      reasons.push(`Contains suspicious keyword: "${word}"`);
-      score += 15;
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data.error || `Backend request failed (${response.status})`);
     }
-  });
 
-  if (emailData.links && emailData.links.length > 0) {
-    reasons.push(`Contains ${emailData.links.length} link(s)`);
-    score += 10;
+    return data.analysis;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  if (emailData.has_attachments) {
-    reasons.push("Contains attachment");
-    score += 10;
-  }
-
-  if (
-    senderDomain &&
-    !senderDomain.endsWith("gmail.com") &&
-    !senderDomain.endsWith("google.com") &&
-    !senderDomain.endsWith("kaust.edu.sa") &&
-    !senderDomain.endsWith("outlook.com") &&
-    !senderDomain.endsWith("microsoft.com")
-  ) {
-    reasons.push(`Unfamiliar sender domain: ${senderDomain}`);
-    score += 20;
-  }
-
-  if (score > 100) score = 100;
-
-  let label = "Safe";
-  if (score >= 60) {
-    label = "Phishing";
-  } else if (score >= 30) {
-    label = "Suspicious";
-  }
-
-  if (reasons.length === 0) {
-    reasons.push("No obvious phishing indicators found by mock analysis");
-  }
-
-  return { label, score, reasons };
 }
 
 function buildSummaryHtml(emailData, analysis) {
@@ -82,15 +51,8 @@ function buildSummaryHtml(emailData, analysis) {
   const domain = escapeHtml(emailData.from_domain || "Not found");
   const sentDate = escapeHtml(emailData.sent_datetime || "Not found");
   const attachmentText = emailData.has_attachments ? "Yes" : "No";
-
-  const badgeColor =
-    analysis.label === "Phishing"
-      ? "#d93025"
-      : analysis.label === "Suspicious"
-      ? "#f9ab00"
-      : "#188038";
-
-  const reasonsHtml = analysis.reasons
+  const badgeColor = getBadgeColor(analysis.label);
+  const reasonsHtml = (analysis.reasons || [])
     .map((reason) => `<li>${escapeHtml(reason)}</li>`)
     .join("");
 
@@ -105,7 +67,7 @@ function buildSummaryHtml(emailData, analysis) {
         background: ${badgeColor};
         margin-bottom: 12px;
       ">
-        ${escapeHtml(analysis.label)} (${analysis.score}/100)
+        ${escapeHtml(analysis.label)} (${escapeHtml(analysis.confidence_percent)}%)
       </div>
 
       <div><strong>Subject:</strong> ${subject}</div>
@@ -115,17 +77,41 @@ function buildSummaryHtml(emailData, analysis) {
       <div><strong>Date:</strong> ${sentDate}</div>
       <div><strong>Attachments:</strong> ${attachmentText}</div>
       <div><strong>Links Found:</strong> ${emailData.links ? emailData.links.length : 0}</div>
+      <div><strong>Phishing Probability:</strong> ${escapeHtml(analysis.phishing_probability)}</div>
 
       <div style="margin-top: 12px;"><strong>Reasons:</strong></div>
       <ul style="margin-top: 6px; padding-left: 18px;">
-        ${reasonsHtml}
+        ${reasonsHtml || "<li>No extra explanation available.</li>"}
       </ul>
     </div>
   `;
 }
 
+function extractEmailFromTab(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, { action: "extract_email" }, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      if (!response) {
+        reject(new Error("No response received from Gmail."));
+        return;
+      }
+
+      if (!response.success) {
+        reject(new Error(response.error || "Email extraction failed."));
+        return;
+      }
+
+      resolve(response.data);
+    });
+  });
+}
+
 extractBtn.addEventListener("click", async () => {
-  statusDiv.textContent = "Extracting email...";
+  statusDiv.textContent = "Extracting email from Gmail...";
   outputPre.textContent = "";
 
   try {
@@ -136,32 +122,27 @@ extractBtn.addEventListener("click", async () => {
       return;
     }
 
-    chrome.tabs.sendMessage(tab.id, { action: "extract_email" }, (response) => {
-      if (chrome.runtime.lastError) {
-        statusDiv.textContent = "Could not connect to Gmail page.";
-        outputPre.textContent = chrome.runtime.lastError.message;
-        return;
-      }
+    if (!tab.url || !tab.url.startsWith("https://mail.google.com/")) {
+      statusDiv.textContent = "Open a Gmail message first.";
+      return;
+    }
 
-      if (!response) {
-        statusDiv.textContent = "No response received.";
-        return;
-      }
+    const emailData = await extractEmailFromTab(tab.id);
+    statusDiv.textContent = "Sending email to backend model...";
 
-      if (!response.success) {
-        statusDiv.textContent = "Extraction failed.";
-        outputPre.textContent = response.error || "Unknown error";
-        return;
-      }
+    const analysis = await analyzeWithBackend(emailData);
 
-      const emailData = response.data;
-      const analysis = runMockAnalysis(emailData);
-
-      statusDiv.textContent = "Mock analysis complete.";
-      outputPre.innerHTML = buildSummaryHtml(emailData, analysis);
-    });
+    statusDiv.textContent = "Model analysis complete.";
+    outputPre.innerHTML = buildSummaryHtml(emailData, analysis);
   } catch (error) {
-    statusDiv.textContent = "Unexpected error.";
-    outputPre.textContent = error.message;
+    const isTimeout = error.name === "AbortError";
+    statusDiv.textContent = isTimeout
+      ? "Backend request timed out."
+      : "Analysis failed.";
+
+    outputPre.textContent = isTimeout
+      ? "The backend did not respond in time. Make sure backend/app.py is running on http://127.0.0.1:5000."
+      : error.message ||
+        "Make sure backend/app.py is running on http://127.0.0.1:5000.";
   }
 });
